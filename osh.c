@@ -14,8 +14,7 @@ int main()
 {
     char *args[MAX_LINE/2 + 1]; // array of char pointer(string)
     
-    int should_run = 1; // 1: True, 0: False
-    int background = 0; // 1: True, 0: False
+    int code = 0; // default : 0 / "&" included (background) : 1 / "exit" : 2
 
     pid_t pid, waitPid;
 
@@ -26,10 +25,9 @@ int main()
      * (2) the child process will invoke execvp()
      * (3) parent will invoke wait() unlless command included &
      */
-    int i;
     while (1) {
         memset(args, '\0', sizeof(args));
-        background = takeInput(args); // take command from user with return code
+        code = takeInput(args); // take command from user with return code
 
         pid = fork(); // create new process
 
@@ -41,10 +39,10 @@ int main()
             execvp(args[0], args);
         }
         else { // parent process
-            if (background)
-                // continue;
+            printf("%d\n", code);
+            if (code == 2) // exit
+                break;
             waitpid(pid, NULL, 0);
-
             sleep(1); // give delay in order to get results of child process
         }
         
@@ -61,7 +59,7 @@ int main()
  */
 int takeInput(char **arr)
 {
-    int code = 0; // default : 0, "&" included (background) : 1
+    int code = 0; // default : 0, "&" included (background) : 1, "exit" : 2
     char line[MAX_LINE]; // Input string
     char *str; // placeholder for parsed string
     printf("osh> ");
@@ -74,6 +72,9 @@ int takeInput(char **arr)
         // printf("takeInput: %s", parsed);
         if (strcmp(parsed, "&") == 0) // if there is "&" symbol, the child process will run concurrently
             code = 1;
+        else if (strcmp(parsed, "exit") == 0) {
+            code = 2;
+        }
         str = (char *) malloc(sizeof(char) * (strlen(parsed) + 1)); // memory allocation
         strcpy(str, parsed); // String copy
         arr[i] = str;
