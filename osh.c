@@ -8,7 +8,6 @@
 
 // define prototypes of functions
 int takeInput(char **arr);
-int count = 0;
 
 int main()
 {
