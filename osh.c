@@ -108,11 +108,11 @@ void default_exec(char **args)
     }
     else { // parent process
         waitpid(pid, NULL, 0);
-        sleep(1); // give delay in order to get results of child process
+        //sleep(1); // give delay in order to get results of child process
     }
 }
 
-void ampersand_exec(char **args)
+void ampersand_exec(char **args) // 문제 있는지 확인 필요 (fork 한번 더 할지?) 그리고 좀비 프로세스 해결
 {
     pid_t pid, ppid;
     pid_t sid = 0;
@@ -127,36 +127,20 @@ void ampersand_exec(char **args)
         return;
     }
     else if (pid == 0) { // child process
+        umask(0);
         setsid();
         chdir("/");    
         signal(SIGHUP, SIG_IGN);
-        pid = fork();
-        if (pid < 0) {
-            fprintf(stdout, "error");
-        }
-        else if (pid == 0) {
-            chdir("/");
-            if (rl.rlim_max == RLIM_INFINITY) {
-                rl.rlim_max = 1024;
-            }
-            for (int i=0; i<rl.rlim_max; i++) {
-                close(i);
-            }
-            int fd = open("dev/null", O_RDWR);
-            dup2(fd, 1);
-            dup2(fd, 2);
-            dup2(fd, 0);
-            close(fd);
-            int i;
-            for (i=0; i<sizeof(args) && strcmp(args[i], "&") != 0; i++) {}
-            args[i] = NULL;
-            execvp(args[0], args);
-        }
-        else {
-            exit(0);
-        }
+        close(STDIN_FILENO);
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        int i;
+        for (i=0; i<sizeof(args) && strcmp(args[i], "&") != 0; i++) {}
+        args[i] = NULL;
+        execvp(args[0], args);
     }
     else if (pid > 0) { // parent process
+        waitpid(pid, NULL, WNOHANG);
         printf("[%d] Run in background\n", pid);
         return;
     }
