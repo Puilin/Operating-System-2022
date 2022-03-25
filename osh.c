@@ -1,13 +1,20 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h> // for string parsing
-#include <stdlib.h> // for free()
+#include <stdlib.h>
 #include <sys/wait.h>
+#include <fcntl.h> // for O_RDWR
+#include <sys/stat.h>
+#include <sys/resource.h>
 
 #define MAX_LINE 80 /* The maximum length command */
 
 // define prototypes of functions
 int takeInput(char **arr);
+void default_exec(char **args); // + int redirect 인수 추가
+void ampersand_exec(char **args); // + int redirect 인수 추가
+void redirect_exec(char **args);
+void pipe_exec(char **args);
 
 int main()
 {
@@ -15,7 +22,7 @@ int main()
     
     int code = 0; // default : 0 / "&" included (background) : 1 / "exit" : 2
 
-    pid_t pid, waitPid;
+    
 
     /**
      * @brief 
@@ -28,23 +35,20 @@ int main()
         memset(args, '\0', sizeof(args));
         code = takeInput(args); // take command from user with return code
 
-        pid = fork(); // create new process
-
-        if (pid < 0) { // error
-            fprintf(stderr, "Fork Failed\n");
-            return 1;
-        }
-        else if (pid == 0) { // chile process
-            execvp(args[0], args);
-        }
-        else { // parent process
-            printf("%d\n", code);
-            if (code == 2) // exit
+        switch (code)
+        {
+            case 0:
+                default_exec(args);
                 break;
-            waitpid(pid, NULL, 0);
-            sleep(1); // give delay in order to get results of child process
+            case 1:
+                ampersand_exec(args);
+                break;
+            case 2: // exit
+                return 0;
+            
+            default:
+                break;
         }
-        
 
     }
     return 0;
@@ -85,4 +89,75 @@ int takeInput(char **arr)
 
     return code;
 
+}
+
+void default_exec(char **args)
+{
+
+    pid_t pid, waitPid;
+
+    pid = fork(); // create new process
+
+    if (pid < 0) { // error
+        fprintf(stderr, "Fork Failed\n");
+        return;
+    }
+    else if (pid == 0) { // chile process
+        execvp(args[0], args);
+        fprintf(stdout, "error\n");
+    }
+    else { // parent process
+        waitpid(pid, NULL, 0);
+        sleep(1); // give delay in order to get results of child process
+    }
+}
+
+void ampersand_exec(char **args)
+{
+    pid_t pid, ppid;
+    pid_t sid = 0;
+
+    struct rlimit rl;
+    struct sigaction sa;
+
+    pid = fork(); // create new process
+
+    if (pid < 0) { // error
+        fprintf(stderr, "Fork Failed\n");
+        return;
+    }
+    else if (pid == 0) { // child process
+        setsid();
+        chdir("/");    
+        signal(SIGHUP, SIG_IGN);
+        pid = fork();
+        if (pid < 0) {
+            fprintf(stdout, "error");
+        }
+        else if (pid == 0) {
+            chdir("/");
+            if (rl.rlim_max == RLIM_INFINITY) {
+                rl.rlim_max = 1024;
+            }
+            for (int i=0; i<rl.rlim_max; i++) {
+                close(i);
+            }
+            int fd = open("dev/null", O_RDWR);
+            dup2(fd, 1);
+            dup2(fd, 2);
+            dup2(fd, 0);
+            close(fd);
+            int i;
+            for (i=0; i<sizeof(args) && strcmp(args[i], "&") != 0; i++) {}
+            args[i] = NULL;
+            execvp(args[0], args);
+        }
+        else {
+            exit(0);
+        }
+    }
+    else if (pid > 0) { // parent process
+        printf("[%d] Run in background\n", pid);
+        return;
+    }
 }
