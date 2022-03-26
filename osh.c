@@ -11,10 +11,14 @@
 
 // define prototypes of functions
 int takeInput(char **arr);
+void check_extension(char **args);
 void default_exec(char **args); // + int redirect 인수 추가
 void ampersand_exec(char **args); // + int redirect 인수 추가
 void redirect_exec(char **args);
 void pipe_exec(char **args);
+
+// global variables
+int arr[2]; // placeholder for return values of check_extension
 
 int main()
 {
@@ -34,7 +38,7 @@ int main()
     while (1) {
         memset(args, '\0', sizeof(args));
         code = takeInput(args); // take command from user with return code
-
+        
         switch (code)
         {
             case 0:
@@ -91,10 +95,39 @@ int takeInput(char **arr)
 
 }
 
+void check_extension(char **args)
+{
+    int ex_code = 0;
+    int i;
+    for (i=0; i<sizeof(args) && args[i] != NULL; i++) {
+        if (strcmp(args[i], ">") == 0) {
+            ex_code = 1;
+            break;
+        }
+        else if (strcmp(args[i], "<") == 0) {
+            ex_code = 2;
+            break;
+        }
+        else if (strcmp(args[i], "|") == 0) {
+            ex_code = 3;
+            break;
+        }
+    }
+
+    arr[0] = i;
+    arr[1] = ex_code;
+
+}
+
 void default_exec(char **args)
 {
-
+    int idx, ex_code, fd;
     pid_t pid, waitPid;
+    char buf[MAX_LINE];
+
+    check_extension(args); // check if there's redirect or pipe
+    idx = arr[0]; // where below symbols appear
+    ex_code = arr[1]; // default : 0, ">" : 1, "<" : 2, "|" : 3    
 
     pid = fork(); // create new process
 
@@ -103,8 +136,34 @@ void default_exec(char **args)
         return;
     }
     else if (pid == 0) { // chile process
-        execvp(args[0], args);
-        fprintf(stdout, "error\n");
+        switch (ex_code)
+        {
+        case 0:
+            execvp(args[0], args);
+            fprintf(stdout, "error\n");
+            break;
+        case 1:
+            fd = open(args[idx+1], O_CREAT | O_RDWR, 0666);
+            dup2(fd, 1); // replace fd as stdout
+            close(fd);
+            args[idx] = NULL;
+            execvp(args[0], args);
+            break;
+        case 2:
+            if (fd = open(args[idx+1], O_RDONLY, 0666) < 0) {
+                printf("There's no such file");
+            }
+            dup2(fd, 0); // replace fd as stdin
+            close(fd);
+            memmove(args[idx], args[idx+1], sizeof(args[idx+1]));
+            execvp(args[0], args);
+            break;
+        case 3:
+            printf("case 3 entered\n");
+            break;
+        default:
+            break;
+        }
     }
     else { // parent process
         waitpid(pid, NULL, 0);
