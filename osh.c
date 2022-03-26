@@ -25,8 +25,7 @@ int main()
     char *args[MAX_LINE/2 + 1]; // array of char pointer(string)
     
     int code = 0; // default : 0 / "&" included (background) : 1 / "exit" : 2
-
-    
+    int should_run = 1;
 
     /**
      * @brief 
@@ -35,8 +34,8 @@ int main()
      * (2) the child process will invoke execvp()
      * (3) parent will invoke wait() unlless command included &
      */
-    while (1) {
-        memset(args, '\0', sizeof(args));
+    while (should_run) {
+        memset(args, '\0', sizeof(args)); // initialize the args
         code = takeInput(args); // take command from user with return code
         
         switch (code)
@@ -48,13 +47,18 @@ int main()
                 ampersand_exec(args);
                 break;
             case 2: // exit
-                return 0;
-            
+                should_run = 0;
+                break;
             default:
                 break;
         }
 
     }
+
+    for (int i=0; i<41; i++) {
+        free(args[i]);
+    }
+    
     return 0;
 }
 
