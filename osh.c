@@ -17,8 +17,6 @@ int takeInput(char **arr);
 void check_extension(char **args);
 void default_exec(char **args); // + int redirect 인수 추가
 void ampersand_exec(char **args); // + int redirect 인수 추가
-void redirect_exec(char **args);
-void pipe_exec(char **args);
 
 // global variables
 int arr[2]; // placeholder for return values of check_extension
@@ -172,13 +170,13 @@ void default_exec(char **args)
                 return;
             }
 
-            ppid = fork();
+            ppid = fork(); // new process again
 
             if (ppid < 0) {
                 fprintf(stderr, "fork error");
                 return;
             }
-            else if (ppid == 0) {
+            else if (ppid == 0) { // grandchild process
                 close(file_desc[READ]);
                 dup2(file_desc[WRITE], 1);
                 args[idx] = NULL; // "|"
@@ -186,7 +184,7 @@ void default_exec(char **args)
                 fprintf(stderr, "execution failed");
                 return;
             }
-            else {
+            else { // child process
                 close(file_desc[WRITE]);
                 dup2(file_desc[READ], 0);
                 // read(file_desc[READ], buf, MAXBUF);
@@ -203,9 +201,8 @@ void default_exec(char **args)
             break;
         }
     }
-    else { // parent process
+    else { // grandparent process
         waitpid(pid, NULL, 0);
-        //sleep(1); // give delay in order to get results of child process
     }
 }
 
