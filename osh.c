@@ -8,6 +8,9 @@
 #include <sys/resource.h>
 
 #define MAX_LINE 80 /* The maximum length command */
+#define READ 0
+#define WRITE 1
+#define MAXBUF 1024
 
 // define prototypes of functions
 int takeInput(char **arr);
@@ -126,8 +129,9 @@ void check_extension(char **args)
 void default_exec(char **args)
 {
     int idx, ex_code, fd;
-    pid_t pid, waitPid;
-    char buf[MAX_LINE];
+    pid_t pid, ppid;
+    int file_desc[2];
+    char *buf[MAX_LINE];
 
     check_extension(args); // check if there's redirect or pipe
     idx = arr[0]; // where below symbols appear
@@ -139,7 +143,7 @@ void default_exec(char **args)
         fprintf(stderr, "Fork Failed\n");
         return;
     }
-    else if (pid == 0) { // chile process
+    else if (pid == 0) { // child process
         switch (ex_code)
         {
         case 0:
@@ -163,7 +167,37 @@ void default_exec(char **args)
             execvp(args[0], args);
             break;
         case 3:
-            printf("case 3 entered\n");
+            if (pipe(file_desc) < 0) {
+                fprintf(stderr, "pipe error");
+                return;
+            }
+
+            ppid = fork();
+
+            if (ppid < 0) {
+                fprintf(stderr, "fork error");
+                return;
+            }
+            else if (ppid == 0) {
+                close(file_desc[READ]);
+                dup2(file_desc[WRITE], 1);
+                args[idx] = NULL; // "|"
+                execvp(args[0], args);
+                fprintf(stderr, "execution failed");
+                return;
+            }
+            else {
+                close(file_desc[WRITE]);
+                dup2(file_desc[READ], 0);
+                // read(file_desc[READ], buf, MAXBUF);
+                // for (int i = 0; i<MAXBUF && buf[i] != NULL; i++) {
+                //     printf("buffer : %s ,", buf[i]);
+                // }
+                execvp(args[idx+1], &args[idx+1]);
+                fprintf(stdout, "execution failed");
+                return;
+            }
+            waitpid(ppid, NULL, 0);
             break;
         default:
             break;
