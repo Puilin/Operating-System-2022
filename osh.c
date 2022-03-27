@@ -14,19 +14,19 @@
 
 // define prototypes of functions
 int takeInput(char **arr);
-void check_extension(char **args);
-void default_exec(char **args); // + int redirect 인수 추가
-void ampersand_exec(char **args); // + int redirect 인수 추가
+void check_extension(char **args); // check if there is a symbol like ">", "<", "|"
+void default_exec(char **args);
+void ampersand_exec(char **args); // background (daemon) process
 
 // global variables
-int arr[2]; // placeholder for return values of check_extension
+int arr[2]; // placeholder for return values of check_extension()
 
 int main()
 {
-    char *args[MAX_LINE/2 + 1]; // array of char pointer(string)
+    char *args[MAX_LINE/2 + 1]; // parsed command goes here
     
     int code = 0; // default : 0 / "&" included (background) : 1 / "exit" : 2
-    int should_run = 1;
+    int should_run = 1; // for while loop
 
     /**
      * @brief 
@@ -57,7 +57,7 @@ int main()
     }
 
     for (int i=0; i<41; i++) {
-        free(args[i]);
+        free(args[i]); // memery deallocation
     }
     
     return 0;
@@ -76,12 +76,11 @@ int takeInput(char **arr)
     char *str; // placeholder for parsed string
     printf("osh> ");
     fgets(line, MAX_LINE, stdin);
-    line[strlen(line)-1]='\0'; // remove '\n' from input so that the command works
+    line[strlen(line)-1] = '\0'; // remove '\n' from input so that the command works
 
     char *parsed = strtok(line, " "); // Parsing using delimeter " "
     int i = 0;
     while (parsed != NULL) {
-        // printf("takeInput: %s", parsed);
         if (strcmp(parsed, "&") == 0) // if there is "&" symbol, the child process will run concurrently
             code = 1;
         else if (strcmp(parsed, "exit") == 0) {
@@ -89,7 +88,7 @@ int takeInput(char **arr)
         }
         str = (char *) malloc(sizeof(char) * (strlen(parsed) + 1)); // memory allocation
         strcpy(str, parsed); // String copy
-        arr[i] = str;
+        arr[i] = str; // save in arr
         i++;
         parsed = strtok(NULL, " ");
     }
@@ -100,6 +99,11 @@ int takeInput(char **arr)
 
 }
 
+/**
+ * @brief check if there is a symbol like ">", "<", "|"
+ * 
+ * @param args array of parsed command
+ */
 void check_extension(char **args)
 {
     int ex_code = 0;
@@ -126,9 +130,9 @@ void check_extension(char **args)
 
 void default_exec(char **args)
 {
-    int idx, ex_code, fd;
+    int idx, ex_code, fd; // idx : index of delimeter , ex_code : return value of check_extension
     pid_t pid, ppid;
-    int file_desc[2];
+    int file_desc[2]; // for pipe()
     char *buf[MAX_LINE];
 
     check_extension(args); // check if there's redirect or pipe
@@ -141,7 +145,7 @@ void default_exec(char **args)
         fprintf(stderr, "Fork Failed\n");
         return;
     }
-    else if (pid == 0) { // child process
+    else if (pid == 0) {
         switch (ex_code)
         {
         case 0:
@@ -162,6 +166,7 @@ void default_exec(char **args)
             dup2(fd, 0); // replace fd as stdin
             close(fd);
             memmove(args[idx], args[idx+1], sizeof(args[idx+1]));
+            args[idx+1] = NULL;
             execvp(args[0], args);
             break;
         case 3:
@@ -176,7 +181,7 @@ void default_exec(char **args)
                 fprintf(stderr, "fork error");
                 return;
             }
-            else if (ppid == 0) { // grandchild process
+            else if (ppid == 0) {
                 close(file_desc[READ]);
                 dup2(file_desc[WRITE], 1);
                 args[idx] = NULL; // "|"
@@ -184,15 +189,11 @@ void default_exec(char **args)
                 fprintf(stderr, "execution failed");
                 return;
             }
-            else { // child process
+            else {
                 close(file_desc[WRITE]);
                 dup2(file_desc[READ], 0);
-                // read(file_desc[READ], buf, MAXBUF);
-                // for (int i = 0; i<MAXBUF && buf[i] != NULL; i++) {
-                //     printf("buffer : %s ,", buf[i]);
-                // }
                 execvp(args[idx+1], &args[idx+1]);
-                fprintf(stdout, "execution failed");
+                fprintf(stderr, "execution failed");
                 return;
             }
             waitpid(ppid, NULL, 0);
@@ -201,7 +202,7 @@ void default_exec(char **args)
             break;
         }
     }
-    else { // grandparent process
+    else {
         waitpid(pid, NULL, 0);
     }
 }
