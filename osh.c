@@ -8,7 +8,6 @@
 #define MAX_LINE 80 /* The maximum length command */
 #define READ 0
 #define WRITE 1
-#define MAXBUF 1024
 
 // define prototypes of functions
 int takeInput(char **arr);
@@ -36,7 +35,7 @@ int main()
     while (should_run) {
         memset(args, '\0', sizeof(args)); // initialize the args
         code = takeInput(args); // take command from user with return code
-        fflush(stdin);
+        fflush(stdout);
         
         switch (code)
         {
@@ -127,6 +126,11 @@ void check_extension(char **args)
 
 }
 
+/**
+ * @brief command execution without ampersand
+ * 
+ * @param args array of parsed command
+ */
 void default_exec(char **args)
 {
     int idx, ex_code, fd; // idx : index of delimeter , ex_code : return value of check_extension
@@ -148,10 +152,9 @@ void default_exec(char **args)
         {
         case 0:
             execvp(args[0], args);
-            fprintf(stdout, "error\n");
+            fprintf(stderr, "error\n");
             break;
         case 1:
-            close(0);
             fd = open(args[idx+1], O_CREAT | O_RDWR, 0666);
             dup2(fd, 1); // replace fd as stdout
             close(fd);
@@ -159,7 +162,6 @@ void default_exec(char **args)
             execvp(args[0], args);
             break;
         case 2:
-            close(1);
             if (fd = open(args[idx+1], O_RDONLY, 0666) < 0) {
                 printf("There's no such file");
             }
@@ -207,7 +209,12 @@ void default_exec(char **args)
     }
 }
 
-void ampersand_exec(char **args) // 문제 있는지 확인 필요 (fork 한번 더 할지?) 그리고 좀비 프로세스 해결
+/**
+ * @brief command execution with ampersand
+ * 
+ * @param args array of parsed command
+ */
+void ampersand_exec(char **args)
 {
     int idx, ex_code, fd; // idx : index of delimeter , ex_code : return value of check_extension
 
@@ -233,22 +240,6 @@ void ampersand_exec(char **args) // 문제 있는지 확인 필요 (fork 한번 
         }
         else if (pid2 > 0) return;
         else {
-            // umask(0);
-            // setsid();
-            // chdir("/");
-            // // int n = sysconf(_SC_OPEN_MAX);
-            // // for (int i=4; i<n; i++) { // close all file descriptors
-            // //     close(i);
-            // // }
-            // signal(SIGHUP, SIG_IGN);
-            // // signal(SIGCHLD, SIG_IGN);
-            // // signal(SIGTSTP, SIG_IGN);
-            // // signal(SIGTTOU, SIG_IGN);
-            // // signal(SIGTTIN, SIG_IGN);
-            // // close(STDIN_FILENO);
-            // close(STDOUT_FILENO);
-            // // close(STDERR_FILENO);
-
             int i;
             for (i=0; i<sizeof(args) && strcmp(args[i], "&") != 0; i++) {}
             args[i] = NULL; // "&" symbol
