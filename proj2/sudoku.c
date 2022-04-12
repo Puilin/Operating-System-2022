@@ -139,14 +139,14 @@ void check_sudoku(void)
      * 스레드를 생성하여 각 행을 검사하는 check_rows() 함수를 실행한다.
      */
     if ((tid = pthread_create(&rowtid, NULL, check_rows, NULL)) < 0) {
-        perror("thread create error");
+        perror("thread create error : check_rows");
         exit(1);
     }
     /*
      * 스레드를 생성하여 각 열을 검사하는 check_columns() 함수를 실행한다.
      */
     if ((tid = pthread_create(&coltid, NULL, check_columns, NULL)) < 0) {
-        perror("thread create error");
+        perror("thread create error : check_columns");
         exit(1);
     }
     /*
@@ -156,7 +156,7 @@ void check_sudoku(void)
     int k[9] = {0,1,2,3,4,5,6,7,8};
     for (int a=0; a<9; a++) {
         if ((tid = pthread_create(&subgridtid[a], NULL, check_subgrid, &k[a])) < 0) {
-            perror("thread create error");
+            perror("thread create error : check_subgrid");
             exit(1);
         }
     }
