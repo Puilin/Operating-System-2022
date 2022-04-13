@@ -32,7 +32,7 @@ void *check_rows(void *arg)
     
     int i, j;
     for (i=0; i<9; i++) {
-        memset(counter, 0, sizeof(counter));
+        memset(counter, 0, sizeof(counter)); // counter 초기화
         is_repeated = 0;
         for (j=0; j<9; j++) {
             val = sudoku[i][j];
@@ -59,7 +59,7 @@ void *check_columns(void *arg)
     
     int i, j;
     for (i=0; i<9; i++) {
-        memset(counter, 0, sizeof(counter));
+        memset(counter, 0, sizeof(counter)); // counter 초기화
         is_repeated = 0;
         for (j=0; j<9; j++) {
             val = sudoku[j][i];
