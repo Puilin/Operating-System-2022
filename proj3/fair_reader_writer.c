@@ -477,7 +477,7 @@ int main(void)
     pthread_mutex_init(&first, NULL);
 
     // duplicate output onto txt file
-    int f = open("fair.txt", O_RDWR|O_CREAT, 0666);
+    int f = open("fair_reader_writer.txt", O_RDWR|O_CREAT, 0666);
     dup2(f, 1);
 
     /*
