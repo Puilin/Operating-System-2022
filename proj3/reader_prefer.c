@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <time.h>
 #include <pthread.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 #define L0 8192
 #define L1 50
@@ -343,15 +345,19 @@ char *img5[L5] = {
  * alive 값이 0이 되면 무한 루프를 빠져나와 스레드를 자연스럽게 종료한다.
  */
 int alive = 1;
-pthread_mutex_t mutex; // 조건변수 조회용 mutex lock
-pthread_cond_t read[NREAD]; // reader 조건변수
-pthread_cond_t write[NWRITE]; // writer 조건변수
+int readerCount = 0;
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t writerCond = PTHREAD_COND_INITIALIZER;
 
 /*
  * Reader 스레드는 같은 문자를 L0번 출력한다. 예를 들면 <AAA...AA> 이런 식이다.
  * 출력할 문자는 인자를 통해 0이면 A, 1이면 B, ..., 등으로 출력하며, 시작과 끝을 <...>로 나타낸다.
  * 단일 reader라면 <AAA...AA>처럼 같은 문자만 출력하겠지만, critical section에서 reader의
  * 중복을 허용하기 때문에 reader가 많아지면 출력이 어지럽게 섞여서 나오는 것이 정상이다.
+ */
+
+/*
+ * Reader Preference Method
  */
 void *reader(void *arg)
 {
@@ -365,6 +371,9 @@ void *reader(void *arg)
      * 스레드가 살아 있는 동안 같은 문자열 시퀀스 <XXX...XX>를 반복해서 출력한다.
      */
     while (alive) {
+        pthread_mutex_lock(&lock);
+        readerCount++;
+        pthread_mutex_unlock(&lock);
         /*
          * Begin Critical Section
          */
@@ -375,6 +384,15 @@ void *reader(void *arg)
         /* 
          * End Critical Section
          */
+        pthread_mutex_lock(&lock);
+        readerCount--;
+        /*
+         * signal을 mutex_unlock 밖에서 풀어, 일찍 lock이 해제된, 개선된 버전.
+         */
+        pthread_mutex_unlock(&lock);
+        if(readerCount == 0)
+            pthread_cond_broadcast(&writerCond);
+        
     }
     pthread_exit(NULL);
 }
@@ -400,6 +418,14 @@ void *writer(void *arg)
      * 스레드가 살아 있는 동안 같은 이미지를 반복해서 출력한다.
      */
     while (alive) {
+        pthread_mutex_lock(&lock);
+        while(readerCount != 0) {
+            if(!alive) {
+                pthread_mutex_unlock(&lock);
+                pthread_exit(0);
+            }
+            pthread_cond_wait(&writerCond, &lock);
+        }
         /*
          * Begin Critical Section
          */
@@ -428,6 +454,9 @@ void *writer(void *arg)
             default:
                 ;
         }
+        // if(readerCount == 0)
+        //     pthread_cond_broadcast(&writerCond);
+        pthread_mutex_unlock(&lock);
         /* 
          * End Critical Section
          */
@@ -453,6 +482,9 @@ int main(void)
     pthread_t rthid[NREAD];
     pthread_t wthid[NWRITE];
     struct timespec req;
+
+    int f = open("reader_prefer.txt", O_RDWR|O_CREAT, 0666);
+    dup2(f, 1);
 
     /*
      * Create NREAD reader threads
@@ -488,5 +520,8 @@ int main(void)
         pthread_join(rthid[i], NULL);
     for (i = 0; i < NWRITE; ++i)
         pthread_join(wthid[i], NULL);
+    
+    pthread_mutex_destroy(&lock);
+    pthread_cond_destroy(&writerCond);
     exit(0);
 }
