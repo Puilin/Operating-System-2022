@@ -18,15 +18,17 @@ static void *worker(void *param)
 {
     task_t *task;
     pthread_pool_t *pool = (pthread_pool_t*)param;
-    while (1) {
+    while (pool->running) {
         pthread_mutex_lock(&(pool->mutex));
         while (pool->q_size == 0) {
             pthread_cond_wait(&(pool->full), &(pool->mutex));
         }
         // doing some work
         task = dequeue(pool);
-        if (task != NULL)
+        if (task != NULL) {
             task->function(task->param);
+            free(task);
+        }
         pthread_mutex_unlock(&(pool->mutex));
     }
 }
@@ -34,10 +36,10 @@ static void *worker(void *param)
 static void enqueue(pthread_pool_t *pool, task_t *t)
 {
     pthread_mutex_lock(&(pool->mutex));
-    while (pool->q_len == pool->q_size) {
+    while (pool->q_len == pool->q_size) { // 꽉찬 경우
         pthread_cond_wait(&(pool->empty), &(pool->mutex));
     }
-    memmove(pool->q + pool->q_back * sizeof(task_t), t, sizeof(task_t));
+    memcpy(pool->q + pool->q_back * sizeof(task_t), t, sizeof(task_t));
     free(t);
     pool->q_len = pool->q_len + 1;
     pthread_mutex_unlock(&(pool->mutex));
@@ -47,14 +49,12 @@ static void enqueue(pthread_pool_t *pool, task_t *t)
 
 static task_t *dequeue(pthread_pool_t *pool)
 {
-    task_t result;
-    task_t *task = (task_t*)malloc(sizeof(task_t) * pool->q_size);
-    memmove(task, pool->q, sizeof(task_t) * pool->q_size);
-    result = task[pool->q_front];
+    task_t *task = (task_t*)malloc(sizeof(task_t));
+    memcpy(task, &pool->q[pool->q_front], sizeof(task_t));
     pool->q_len = pool->q_len - 1;
     pool->q_front = (pool->q_front + 1) % pool->q_size;
     pthread_cond_broadcast(&(pool->empty));
-    return &result;
+    return task;
 }
 
 /*
@@ -67,7 +67,7 @@ int pthread_pool_init(pthread_pool_t *pool, size_t bee_size, size_t queue_size)
     if (bee_size > POOL_MAXBSIZE || queue_size > POOL_MAXQSIZE)
         return POOL_FAIL;
 
-    task_t *queue;
+    task_t *queue; // in heap
 
     pthread_mutex_t mutex;
     pthread_cond_t full;
@@ -81,7 +81,7 @@ int pthread_pool_init(pthread_pool_t *pool, size_t bee_size, size_t queue_size)
         pool->q_size = queue_size;
     }
 
-    pthread_t bee_[bee_size];
+    pthread_t *bee_ = (pthread_t*)malloc(sizeof(pthread_t) * bee_size);
 
     pthread_mutex_init(&mutex, NULL);
     pthread_cond_init(&full, NULL);
@@ -121,7 +121,7 @@ int pthread_pool_submit(pthread_pool_t *pool, void (*f)(void *p), void *p, int f
             return POOL_FULL;
         } 
     }
-    task_t *task = (task_t*)malloc(sizeof(task_t));
+    task_t *task = (task_t*)malloc(sizeof(task_t)); // in heap
     task->function = f;
     task->param = p;
     enqueue(pool, task);
@@ -137,15 +137,14 @@ int pthread_pool_submit(pthread_pool_t *pool, void (*f)(void *p), void *p, int f
  */
 int pthread_pool_shutdown(pthread_pool_t *pool)
 {
-    pthread_t *bee = (pthread_t*)malloc(sizeof(pthread_t) * pool->bee_size);
-    memmove(bee, pool->bee, sizeof(pthread_t) * pool->bee_size);
+    pool->running = false;
 
     for (int i=0; i<pool->bee_size; i++) {
-        pthread_cancel(bee[i]);
+        pthread_cancel(pool->bee[i]);
     }
 
     for (int i=0; i<pool->bee_size; i++) {
-        pthread_join(bee[i], NULL);
+        pthread_join(pool->bee[i], NULL);
     }
 
     free(pool->q);
