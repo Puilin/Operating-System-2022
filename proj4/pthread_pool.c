@@ -1,60 +1,36 @@
 /*
  * Copyright 2022. Heekuck Oh, all rights reserved
- * 이 프로그램은 한양대학교 ERICA 소프트웨어학부 재학생을 위한 교육용으로 제작되었습니다.
+ * 이 프로그램은 한양대학교 ERICA 소프트웨어학부 재학생을 괴롭히기 위한 고문용으로 제작되었습니다.
  */
 #include <stdlib.h>
 #include "pthread_pool.h"
-#include <pthread.h>
-#include <stdio.h>
-#include <memory.h> // for memset
-
-static task_t *dequeue(pthread_pool_t *pool);
 
 /*
  * 풀에 있는 일꾼(일벌) 스레드가 수행할 함수이다.
  * FIFO 대기열에서 기다리고 있는 작업을 하나씩 꺼내서 실행한다.
+ * 작업이 있으면 실행, 아니면 대기
  */
 static void *worker(void *param)
 {
-    task_t *task;
-    pthread_pool_t *pool = (pthread_pool_t*)param;
-    while (pool->running) {
-        pthread_mutex_lock(&(pool->mutex));
-        while (pool->q_size == 0) {
-            pthread_cond_wait(&(pool->full), &(pool->mutex));
+    pthread_pool_t *pool = (pthread_pool_t *)param;
+    while(pool->running == true){
+        pthread_mutex_lock(&pool->mutex);
+        while(pool->q_len == 0){
+            if(pool->running == false){
+                pthread_mutex_unlock(&pool->mutex);
+                pthread_exit(NULL);
+            }
+            pthread_cond_wait(&pool->full, &pool->mutex);
         }
-        // doing some work
-        task = dequeue(pool);
-        if (task != NULL) {
-            task->function(task->param);
-            free(task);
-        }
-        pthread_mutex_unlock(&(pool->mutex));
+        /* CS start */
+        pool->q_front = (pool->q_front + 1) % pool->q_size;
+        pool->q_len -= 1;
+        pool->q->function(pool->q->param);
+        /* CS end */
+        pthread_mutex_unlock(&pool->mutex);
+        pthread_cond_signal(&pool->empty);
     }
-}
-
-static void enqueue(pthread_pool_t *pool, task_t *t)
-{
-    pthread_mutex_lock(&(pool->mutex));
-    while (pool->q_len == pool->q_size) { // 꽉찬 경우
-        pthread_cond_wait(&(pool->empty), &(pool->mutex));
-    }
-    memcpy(pool->q + pool->q_back * sizeof(task_t), t, sizeof(task_t));
-    free(t);
-    pool->q_len = pool->q_len + 1;
-    pthread_mutex_unlock(&(pool->mutex));
-    pool->q_back = (pool->q_back + 1) % pool->q_size;
-    pthread_cond_broadcast(&(pool->full));
-}
-
-static task_t *dequeue(pthread_pool_t *pool)
-{
-    task_t *task = (task_t*)malloc(sizeof(task_t));
-    memcpy(task, &pool->q[pool->q_front], sizeof(task_t));
-    pool->q_len = pool->q_len - 1;
-    pool->q_front = (pool->q_front + 1) % pool->q_size;
-    pthread_cond_broadcast(&(pool->empty));
-    return task;
+    pthread_exit(NULL);
 }
 
 /*
@@ -64,47 +40,39 @@ static task_t *dequeue(pthread_pool_t *pool)
  */
 int pthread_pool_init(pthread_pool_t *pool, size_t bee_size, size_t queue_size)
 {
-    if (bee_size > POOL_MAXBSIZE || queue_size > POOL_MAXQSIZE)
-        return POOL_FAIL;
-
-    task_t *queue; // in heap
-
-    pthread_mutex_t mutex;
-    pthread_cond_t full;
-    pthread_cond_t empty;
-
-    if (queue_size < bee_size) {
-        queue = (task_t*)malloc(sizeof(task_t) * (bee_size));
-        pool->q_size = bee_size;
-    } else {
-        queue = (task_t*)malloc(sizeof(task_t) * (queue_size));
-        pool->q_size = queue_size;
-    }
-
-    pthread_t *bee_ = (pthread_t*)malloc(sizeof(pthread_t) * bee_size);
-
-    pthread_mutex_init(&mutex, NULL);
-    pthread_cond_init(&full, NULL);
-    pthread_cond_init(&empty, NULL);
-
-    pool->running = true;
-    pool->q = queue;
-    pool->q_front = 0;
-    pool->q_back = 0;
-    pool->q_len = 0;
-    pool->bee = bee_;
+    /*
+     * bee_size와 queue_size가 적절한 값인지 먼저 검사
+     */
+    if(bee_size > POOL_MAXBSIZE || queue_size > POOL_MAXQSIZE) return POOL_FAIL;
+    /*
+     * queue_size 최적화
+     */
+    if(queue_size < bee_size) queue_size = bee_size;
+    /*
+     * 공간 할당 파트
+     */
+    pool->q = (task_t *)malloc(sizeof(task_t) * queue_size);
+    pool->bee = (pthread_t *)malloc(sizeof(pthread_t) * bee_size);
+    /*
+     * 초기화 파트
+     */
+    pthread_mutex_init(&pool->mutex, NULL);
+    pthread_cond_init(&pool->full, NULL);
+    pthread_cond_init(&pool->empty, NULL);
+    pool->q_size = queue_size;
     pool->bee_size = bee_size;
-    pool->mutex = mutex;
-    pool->full = full;
-    pool->empty = empty;
-
-    for (int i=0; i<bee_size; ++i) {
-        if (pthread_create(&bee_[i], NULL, worker, (void *)pool) != 0) {
-            fprintf(stderr, "pthread_create error\n");
-            return POOL_FAIL;
-        }
+    pool->q_len = 0;
+    pool->q_front = 0;
+    pool->running = true;
+    /*
+     * 스레드 생성 파트
+     */
+    for(int i = 0; i < bee_size; i++){
+        pthread_create(pool->bee+i, NULL, worker, (void *)pool);
     }
-
+    /*
+     * return 파트
+     */
     return POOL_SUCCESS;
 }
 
@@ -116,15 +84,21 @@ int pthread_pool_init(pthread_pool_t *pool, size_t bee_size, size_t queue_size)
  */
 int pthread_pool_submit(pthread_pool_t *pool, void (*f)(void *p), void *p, int flag)
 {
-    if (pool->q_len == pool->q_size) {
+    pthread_mutex_lock(&pool->mutex);
+    pool->q_len +=1;
+    while(pool->q_len > pool->q_size){
         if (flag == POOL_NOWAIT) {
+            pthread_mutex_unlock(&pool->mutex);
             return POOL_FULL;
-        } 
+        }
+        else pthread_cond_wait(&pool->empty, &pool->mutex);
     }
-    task_t *task = (task_t*)malloc(sizeof(task_t)); // in heap
-    task->function = f;
-    task->param = p;
-    enqueue(pool, task);
+    /* CS start */
+    pool->q->function = f;
+    pool->q->param = p;
+    /* CS end */
+    pthread_mutex_unlock(&pool->mutex);
+    pthread_cond_signal(&pool->full);
 
     return POOL_SUCCESS;
 }
@@ -137,20 +111,27 @@ int pthread_pool_submit(pthread_pool_t *pool, void (*f)(void *p), void *p, int f
  */
 int pthread_pool_shutdown(pthread_pool_t *pool)
 {
+    pthread_mutex_lock(&pool->mutex);
     pool->running = false;
-
-    for (int i=0; i<pool->bee_size; i++) {
-        pthread_cancel(pool->bee[i]);
+    pthread_mutex_unlock(&pool->mutex);
+    /*
+     * 조건 변수에서 대기하고 있을지도 모를 스레드 깨우기
+     */
+    pthread_cond_broadcast(&pool->full);
+    pthread_cond_broadcast(&pool->empty);
+    /*
+     * 스레드가 끝날 때까지 기다림
+     */
+    for(int i = 0; i < pool->bee_size; i++){
+        pthread_join(*(pool->bee+i), NULL);
     }
-
-    for (int i=0; i<pool->bee_size; i++) {
-        pthread_join(pool->bee[i], NULL);
-    }
-
+    /*
+     * 모든 자원 반납
+     */
+    pthread_mutex_destroy(&pool->mutex);
+    pthread_cond_destroy(&pool->full);
+    pthread_cond_destroy(&pool->empty);
     free(pool->q);
-    pthread_mutex_destroy(&(pool->mutex));
-    pthread_cond_destroy(&(pool->empty));
-    pthread_cond_destroy(&(pool->full));
-
+    free(pool->bee);
     return POOL_SUCCESS;
 }
